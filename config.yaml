@@ -1,0 +1,14 @@
+search:
+  target_city: "Le Mont-sur-Lausanne"
+  target_country: "SWITZERLAND"
+  perimeter_km: 15
+  price_min: 0
+  price_max: 1600000 # CHF
+  min_rooms: 4.5
+  # Property types to include (anything else is excluded)
+  property_types:
+    - house
+    - villa
+    - maison
+    - pavillon
+    - single-family
