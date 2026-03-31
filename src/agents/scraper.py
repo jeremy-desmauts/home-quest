@@ -1,13 +1,16 @@
 """Scraper agent: fetches pages with Playwright, then uses Claude to extract listings."""
 
 import json
+import re
+
+from bs4 import BeautifulSoup
 
 from ..llm import MODEL_DEFAULT, get_client
 from ..models.listing import Listing
 from ..tools.page_fetcher import fetch_page
 
-# Max HTML size passed to Claude (keep cost reasonable)
-_MAX_HTML_BYTES = 120_000
+# Max characters of cleaned text passed to Claude
+_MAX_TEXT_CHARS = 40_000
 
 
 def scrape_website(name: str, search_url: str) -> list[Listing]:
@@ -23,13 +26,27 @@ def scrape_website(name: str, search_url: str) -> list[Listing]:
         return []
 
 
+def _clean_html(html: str) -> str:
+    """Strip HTML down to readable text to minimise token usage."""
+    soup = BeautifulSoup(html, "html.parser")
+    # Remove tags that carry no listing data
+    for tag in soup(["script", "style", "noscript", "header", "footer", "nav", "svg", "iframe"]):
+        tag.decompose()
+    text = soup.get_text(separator="\n")
+    # Collapse blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if len(text) > _MAX_TEXT_CHARS:
+        text = text[:_MAX_TEXT_CHARS] + "\n[truncated]"
+    return text
+
+
 def _extract_listings(html: str, source: str, base_url: str) -> list[Listing]:
-    if len(html) > _MAX_HTML_BYTES:
-        html = html[:_MAX_HTML_BYTES] + "\n<!-- HTML truncated -->"
+    text = _clean_html(html)
+    print(f"    [scraper] page text: {len(text):,} chars (was {len(html):,} bytes HTML)")
 
     prompt = f"""You are a data extraction expert.
 
-Extract ALL real estate property listings from the HTML below.
+Extract ALL real estate property listings from the page text below.
 For each listing return a JSON object with these fields (use null if unknown):
   title        – property title
   price        – numeric value only (e.g. 320000)
@@ -45,17 +62,14 @@ For each listing return a JSON object with these fields (use null if unknown):
 
 Return ONLY a valid JSON array.  If no listings are found, return [].
 
-HTML:
-{html}
+Page text:
+{text}
 """
-    response = get_client().messages.create(
+    response = get_client().models.generate_content(
         model=MODEL_DEFAULT,
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
+        contents=prompt,
     )
-
-    text = next((b.text for b in response.content if b.type == "text"), "")
-    text = text.strip()
+    text = response.text.strip()
     start, end = text.find("["), text.rfind("]") + 1
     if start < 0 or end <= start:
         return []

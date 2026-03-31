@@ -1,14 +1,10 @@
 """HomeQuest — AI-powered home search agent."""
 
 import argparse
-import time
 from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
-
-# Seconds to wait between API-heavy steps to stay within rate limits
-_STEP_PAUSE = 60
 
 from .agents.discovery import discover_websites
 from .agents.filter_agent import apply_filters
@@ -53,11 +49,7 @@ def main() -> None:
 
     # ── 1. Discovery ────────────────────────────────────────────────────────
     print("🔍  Step 1: Discovering real estate websites …")
-    websites = discover_websites(
-        city=target_city,
-        country=target_country,
-        price_max=search["price_max"],
-    )
+    websites = discover_websites(search)
     if not websites:
         print("    No websites found. Exiting.")
         return
@@ -65,21 +57,12 @@ def main() -> None:
     for w in websites:
         print(f"    • {w['name']} — {w['search_url']}")
 
-    print(f"\n⏳  Waiting {_STEP_PAUSE}s before next step (rate limit) …")
-    time.sleep(_STEP_PAUSE)
-
     # ── 2. Scraping ─────────────────────────────────────────────────────────
     print("\n🕷   Step 2: Scraping listings …")
     all_listings = []
-    for i, w in enumerate(websites):
+    for w in websites:
         all_listings.extend(scrape_website(w["name"], w["search_url"]))
-        if i < len(websites) - 1:
-            print(f"  ⏳  Waiting {_STEP_PAUSE}s before next site (rate limit) …")
-            time.sleep(_STEP_PAUSE)
     print(f"\n    Total scraped: {len(all_listings)} listings\n")
-
-    print(f"\n⏳  Waiting {_STEP_PAUSE}s before next step (rate limit) …")
-    time.sleep(_STEP_PAUSE)
 
     # ── 3. Filtering ────────────────────────────────────────────────────────
     print("🔎  Step 3: Applying filters …")
@@ -104,8 +87,6 @@ def main() -> None:
         save(new_listings)
 
         # ── 5. Report ───────────────────────────────────────────────────────
-        print(f"\n⏳  Waiting {_STEP_PAUSE}s before next step (rate limit) …")
-        time.sleep(_STEP_PAUSE)
         print("📧  Step 5: Sending email report …")
         send_report(new_listings, target_city, search)
 
